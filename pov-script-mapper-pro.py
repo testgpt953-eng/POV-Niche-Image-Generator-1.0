@@ -182,7 +182,7 @@ BADGE_STYLES = {
 defaults = {
     "api_key":         "",      # stored Gemini API key
     "api_key_saved":   False,   # whether key is saved this session
-    "selected_model":  "gemini-2.0-flash",  # chosen Gemini model
+    "selected_model":  "gemini-2.5-flash",  # chosen Gemini model
     "selected_preset": "agent",
     "results":         [],
     "analyzed_script": "",
@@ -267,12 +267,13 @@ Start directly with [ and end with ]
 }}"""
 
 
-# ── Model options ────────────────────────────────────────────────
+# ── Model options (only CONFIRMED working model IDs) ─────────────
+# Source: ai.google.dev/gemini-api/docs/models  (verified March 2025)
 MODEL_OPTIONS = {
-    "gemini-2.0-flash":      "Gemini 2.0 Flash      (15 RPM free)",
-    "gemini-2.0-flash-lite": "Gemini 2.0 Flash-Lite (30 RPM free)",
-    "gemini-1.5-flash":      "Gemini 1.5 Flash      (15 RPM free)",
-    "gemini-1.5-flash-8b":   "Gemini 1.5 Flash-8B   (15 RPM free)",
+    "gemini-2.5-flash":      "Gemini 2.5 Flash      ★ Recommended",
+    "gemini-2.0-flash":      "Gemini 2.0 Flash      (stable)",
+    "gemini-2.0-flash-lite": "Gemini 2.0 Flash-Lite (fast/cheap)",
+    "gemini-1.5-flash":      "Gemini 1.5 Flash      (fallback)",
 }
 
 GEMINI_REST_URL = (
@@ -314,11 +315,9 @@ def call_gemini(api_key: str, script_text: str, system_prompt: str,
         "Analyze this POV script and return ONLY the raw JSON array:\n\n"
         "---SCRIPT START---\n" + script_text + "\n---SCRIPT END---"
     )
-    # Auto-fallback chain — tries each model if previous hits 429
-    fallback_chain = [primary_model] + [
-        m for m in ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
-        if m != primary_model
-    ]
+    # Auto-fallback chain — only confirmed working model IDs
+    _all_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]
+    fallback_chain = [primary_model] + [m for m in _all_models if m != primary_model]
     last_err = None
     used_model = primary_model
     raw = ""
