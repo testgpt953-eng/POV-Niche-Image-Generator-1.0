@@ -384,6 +384,46 @@ def build_export_text(results: list, platform: str) -> str:
     return "\n".join(lines)
 
 
+
+def build_mapping_csv(results: list) -> str:
+    """CSV table: Image# | Scene | Word~ | Script Trigger Line"""
+    import csv, io
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    # Header
+    writer.writerow(["Image #", "Scene Type", "Word Position", "Script Trigger Line"])
+    for r in results:
+        num   = str(r.get("image_number", "?")).zfill(2)
+        stype = r.get("scene_type", "SCENE")
+        wpos  = f"~{r.get('word_count_from_start', '?')}"
+        line  = r.get("script_line", "")
+        writer.writerow([num, stype, wpos, line])
+    return buf.getvalue()
+
+
+def build_prompts_txt(results: list, platform: str) -> str:
+    """Clean numbered prompts — one prompt per block, ready to paste."""
+    suffix = PLATFORM_SUFFIXES.get(platform, PLATFORM_SUFFIXES["Generic"])
+    ts     = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines  = [
+        f"POV IMAGE PROMPTS  |  {platform}  |  {ts}",
+        f"Total: {len(results)} prompts",
+        "=" * 60,
+        "",
+    ]
+    for r in results:
+        num   = str(r.get("image_number", "?")).zfill(2)
+        stype = r.get("scene_type", "SCENE")
+        p     = r.get("image_prompt", "")
+        lines += [
+            f"[{num}] {stype}",
+            f"{p}",
+            f"{suffix}",
+            "",
+        ]
+    return "\n".join(lines)
+
+
 # ================================================================
 # SIDEBAR  —  API KEY MANAGEMENT
 # ================================================================
@@ -752,18 +792,55 @@ if st.session_state.results:
     st.markdown('<hr style="border-color:#252535;margin:20px 0 14px;">', unsafe_allow_html=True)
     st.markdown('<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:10px;">⬇ EXPORT</div>', unsafe_allow_html=True)
 
-    exp1, exp2, exp3 = st.columns(3)
-    with exp1:
+    # ── Row 1: 3 download buttons ─────────────────────────────────
+    ts = datetime.now().strftime('%Y%m%d-%H%M')
+    d1, d2, d3 = st.columns(3)
+
+    with d1:
+        st.markdown('<p style="font-size:9px;color:#4cc9f0;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">📊 Mapping Graph</p>', unsafe_allow_html=True)
         st.download_button(
-            "⬇  Export as .txt",
-            data=build_export_text(results, platform),
-            file_name=f"pov-image-map-{datetime.now().strftime('%Y%m%d-%H%M')}.txt",
+            "⬇  Download CSV Table",
+            data=build_mapping_csv(results),
+            file_name=f"pov-mapping-graph-{ts}.csv",
+            mime="text/csv",
+            use_container_width=True,
+            help="Table: Image# | Scene Type | Word Position | Script Line — opens in Excel / Google Sheets",
+            key="dl_csv",
+        )
+        st.markdown('<p style="font-size:9px;color:#686882;margin-top:4px;">Excel / Google Sheets mein open karo</p>', unsafe_allow_html=True)
+
+    with d2:
+        st.markdown('<p style="font-size:9px;color:#4cc9f0;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">📝 Image Prompts</p>', unsafe_allow_html=True)
+        st.download_button(
+            "⬇  Download Prompts .txt",
+            data=build_prompts_txt(results, platform),
+            file_name=f"pov-image-prompts-{ts}.txt",
             mime="text/plain",
             use_container_width=True,
+            help="Numbered prompts only — one per block, ready to paste in Whisk / MJ",
+            key="dl_prompts",
         )
-    with exp2:
-        st.markdown('<p style="font-size:10px;color:#686882;text-align:center;padding:9px 0;">Each prompt box mein 📋 icon hai → click = copy</p>', unsafe_allow_html=True)
-    with exp3:
+        st.markdown('<p style="font-size:9px;color:#686882;margin-top:4px;">Numbered · Platform suffix included</p>', unsafe_allow_html=True)
+
+    with d3:
+        st.markdown('<p style="font-size:9px;color:#4cc9f0;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">📄 Full Export</p>', unsafe_allow_html=True)
+        st.download_button(
+            "⬇  Download Full .txt",
+            data=build_export_text(results, platform),
+            file_name=f"pov-full-export-{ts}.txt",
+            mime="text/plain",
+            use_container_width=True,
+            help="Full export: prompts + scene types + word positions + script lines",
+            key="dl_full",
+        )
+        st.markdown('<p style="font-size:9px;color:#686882;margin-top:4px;">All details — prompts + metadata</p>', unsafe_allow_html=True)
+
+    # ── Row 2: copy tip + new script ─────────────────────────────
+    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+    r1, r2 = st.columns([2, 1])
+    with r1:
+        st.markdown('<p style="font-size:10px;color:#686882;padding:6px 0;">💡 Har prompt box mein <b style="color:#4cc9f0;">📋</b> icon hai — click karo to copy individual prompt</p>', unsafe_allow_html=True)
+    with r2:
         if st.button("↺  New Script", use_container_width=True):
             st.session_state.results         = []
             st.session_state.analyzed_script = ""
