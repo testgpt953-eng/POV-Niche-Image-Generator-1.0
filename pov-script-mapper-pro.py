@@ -1,1064 +1,678 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>POV Script → Image Mapper</title>
+# ================================================================
+# POV Script → Image Mapper Pro  |  Streamlit + Gemini 2.0 Flash
+# GitHub: create new repo → paste this as app.py
+# requirements.txt needs:  streamlit>=1.32.0   google-genai>=1.0.0
+# ================================================================
+
+import streamlit as st
+import json
+import re
+from datetime import datetime
+from google import genai
+from google.genai import types
+
+# ── Page Config ──────────────────────────────────────────────────
+st.set_page_config(
+    page_title="POV Script → Image Mapper Pro",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ================================================================
+# CUSTOM CSS  —  Dark Cyberpunk Theme
+# ================================================================
+st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Syne:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
 
-:root {
-  --bg:      #080810;
-  --surf:    #0e0e18;
-  --card:    #13131e;
-  --card2:   #181826;
-  --border:  #252535;
-  --border2: #323248;
-  --red:     #e63946;
-  --cyan:    #4cc9f0;
-  --gold:    #f4a261;
-  --green:   #2dc653;
-  --purple:  #7b5ea7;
-  --text:    #e6e6f0;
-  --muted:   #686882;
-  --dim:     #3a3a55;
+/* ── Base ── */
+.stApp                    { background-color: #080810 !important; }
+.stApp > header           { background-color: #080810 !important; }
+.block-container          { padding-top: 1.5rem !important; max-width: 1060px !important; padding-bottom: 4rem !important; }
+
+/* Grid background */
+.stApp::before {
+  content:''; position:fixed; inset:0;
+  background-image: linear-gradient(rgba(76,201,240,.015) 1px,transparent 1px),
+                    linear-gradient(90deg,rgba(76,201,240,.015) 1px,transparent 1px);
+  background-size: 48px 48px; pointer-events:none; z-index:0;
 }
 
-*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+/* ── Sidebar ── */
+[data-testid="stSidebar"]              { background-color: #0e0e18 !important; border-right: 1px solid #252535 !important; }
+[data-testid="stSidebar"] .stMarkdown p { color: #686882 !important; font-size: 11px !important; }
 
-html { scroll-behavior: smooth; }
+/* ── Typography ── */
+body, p, div, span  { font-family: 'DM Mono', monospace !important; }
+h1                  { font-family: 'Bebas Neue', sans-serif !important; }
+h2, h3              { font-family: 'DM Mono', monospace !important; font-size: 9px !important; letter-spacing: .28em !important; text-transform: uppercase !important; color: #4cc9f0 !important; }
+label               { font-family: 'DM Mono', monospace !important; font-size: 10px !important; letter-spacing: .12em !important; text-transform: uppercase !important; color: #686882 !important; }
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'DM Mono', monospace;
-  min-height: 100vh;
-  overflow-x: hidden;
+/* ── Inputs ── */
+.stTextInput > div > div > input,
+.stTextArea  > div > div > textarea {
+  background-color: #0e0e18 !important; border: 1px solid #323248 !important;
+  border-radius: 3px !important; color: #e6e6f0 !important;
+  font-family: 'DM Mono', monospace !important; font-size: 12.5px !important;
 }
+.stTextInput > div > div > input:focus,
+.stTextArea  > div > div > textarea:focus { border-color: #4cc9f0 !important; box-shadow: 0 0 0 1px #4cc9f0 !important; }
+.stTextArea  > div > div > textarea        { min-height: 180px !important; line-height: 1.75 !important; }
 
-/* Grid bg */
-body::before {
-  content:'';
-  position:fixed; inset:0;
-  background-image:
-    linear-gradient(rgba(76,201,240,.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(76,201,240,.025) 1px, transparent 1px);
-  background-size: 48px 48px;
-  pointer-events:none; z-index:0;
+/* ── Selectbox ── */
+.stSelectbox > div > div { background-color: #0e0e18 !important; border: 1px solid #323248 !important; border-radius: 3px !important; color: #e6e6f0 !important; font-family: 'DM Mono', monospace !important; font-size: 12px !important; }
+.stSelectbox svg { fill: #686882 !important; }
+[data-baseweb="select"] div  { background-color: #0e0e18 !important; color: #e6e6f0 !important; }
+[data-baseweb="popover"]     { background-color: #0e0e18 !important; border: 1px solid #323248 !important; }
+[data-baseweb="option"]      { background-color: #0e0e18 !important; color: #e6e6f0 !important; font-family: 'DM Mono', monospace !important; font-size: 12px !important; }
+[data-baseweb="option"]:hover { background-color: #13131e !important; }
+
+/* ── Buttons ── */
+.stButton > button {
+  font-family: 'DM Mono', monospace !important; border-radius: 3px !important;
+  transition: all 0.2s !important; background-color: transparent !important;
+  border: 1px solid #323248 !important; color: #e6e6f0 !important;
+  font-size: 10px !important; letter-spacing: .14em !important; text-transform: uppercase !important;
 }
+.stButton > button:hover { background-color: #4cc9f0 !important; color: #080810 !important; border-color: #4cc9f0 !important; }
 
-/* Vignette */
-body::after {
-  content:'';
-  position:fixed; inset:0;
-  background: radial-gradient(ellipse at center, transparent 40%, rgba(8,8,16,.8) 100%);
-  pointer-events:none; z-index:0;
+/* Primary (Analyze) button */
+.stButton > button[kind="primary"] {
+  background-color: #e63946 !important; border: none !important; color: #fff !important;
+  font-family: 'Bebas Neue', sans-serif !important; font-size: 22px !important;
+  letter-spacing: .15em !important; padding: 14px !important;
 }
+.stButton > button[kind="primary"]:hover { background-color: #ff4d5a !important; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(230,57,70,.4) !important; }
 
-.wrap { max-width:1080px; margin:0 auto; padding:48px 24px 100px; position:relative; z-index:1; }
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"]  { background-color: #13131e !important; border: 1px solid #323248 !important; border-radius: 3px !important; gap: 0 !important; overflow: hidden !important; }
+.stTabs [data-baseweb="tab"]       { background-color: transparent !important; color: #686882 !important; font-family: 'DM Mono', monospace !important; font-size: 10px !important; letter-spacing: .1em !important; text-transform: uppercase !important; border: none !important; border-radius: 0 !important; padding: 10px 18px !important; }
+.stTabs [aria-selected="true"]     { background-color: #e63946 !important; color: #fff !important; }
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
 
-/* ── HEADER ── */
-header { text-align:center; margin-bottom:56px; }
+/* ── Alerts ── */
+.stAlert   { background-color: rgba(230,57,70,.07) !important; border: 1px solid rgba(230,57,70,.3) !important; border-radius: 3px !important; font-family: 'DM Mono', monospace !important; font-size: 12px !important; }
+div[data-baseweb="notification"][kind="positive"] { background-color: rgba(45,198,83,.07) !important; border: 1px solid rgba(45,198,83,.3) !important; }
+div[data-baseweb="notification"][kind="info"]     { background-color: rgba(76,201,240,.07) !important; border: 1px solid rgba(76,201,240,.25) !important; }
 
-.eyebrow {
-  font-size:10px; letter-spacing:.35em; text-transform:uppercase;
-  color:var(--cyan); margin-bottom:14px;
-  opacity:0; animation: up .5s .1s forwards;
-}
+/* ── Code blocks (prompts go here — has built-in copy icon) ── */
+.stCode, code, pre { background-color: #080810 !important; border: 1px solid #252535 !important; border-radius: 3px !important; font-family: 'DM Mono', monospace !important; font-size: 11.5px !important; color: #bebedd !important; line-height: 1.9 !important; }
 
-h1 {
-  font-family:'Bebas Neue', sans-serif;
-  font-size: clamp(48px,9vw,96px);
-  letter-spacing:.04em; line-height:.9;
-  opacity:0; animation: up .5s .2s forwards;
-}
-h1 em { color:var(--red); font-style:normal; }
-h1 small { color:var(--cyan); font-size:.55em; display:block; letter-spacing:.12em; margin-top:6px; }
+/* ── Metrics ── */
+[data-testid="metric-container"]                          { background-color: #0e0e18 !important; border: 1px solid #252535 !important; border-radius: 3px !important; padding: 12px 16px !important; }
+[data-testid="metric-container"] label                    { color: #686882 !important; font-size: 9px !important; }
+[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #4cc9f0 !important; font-family: 'Bebas Neue', sans-serif !important; font-size: 28px !important; }
 
-.tagline {
-  font-size:11px; color:var(--muted); margin-top:18px; letter-spacing:.05em;
-  opacity:0; animation: up .5s .3s forwards;
-}
+/* ── Download button ── */
+.stDownloadButton > button { background-color: transparent !important; border: 1px solid #f4a261 !important; color: #f4a261 !important; font-family: 'DM Mono', monospace !important; font-size: 10px !important; letter-spacing: .14em !important; text-transform: uppercase !important; border-radius: 3px !important; }
+.stDownloadButton > button:hover { background-color: #f4a261 !important; color: #080810 !important; }
 
-/* ── SECTION LABEL ── */
-.slabel {
-  font-size:9px; letter-spacing:.28em; text-transform:uppercase;
-  color:var(--cyan); margin-bottom:14px;
-  display:flex; align-items:center; gap:10px;
-}
-.slabel::before { content:''; width:24px; height:1px; background:var(--cyan); flex-shrink:0; }
-
-/* ── CARD ── */
-.card {
-  background:var(--card); border:1px solid var(--border);
-  border-radius:4px; padding:28px; margin-bottom:18px;
-  opacity:0; animation: up .55s forwards;
-}
-.card:nth-child(1){animation-delay:.35s}
-.card:nth-child(2){animation-delay:.42s}
-.card:nth-child(3){animation-delay:.49s}
-.card:nth-child(4){animation-delay:.56s}
-
-/* ── API KEY ── */
-.api-strip {
-  background: linear-gradient(135deg, rgba(76,201,240,.07), rgba(76,201,240,.02));
-  border:1px solid rgba(76,201,240,.2);
-  border-radius:4px; padding:18px 22px;
-  display:flex; align-items:center; gap:18px; flex-wrap:wrap;
-  margin-bottom:18px;
-  opacity:0; animation: up .5s .3s forwards;
-}
-.api-info { flex:1; min-width:200px; }
-.api-info strong { display:block; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--cyan); margin-bottom:4px; }
-.api-info span { font-size:11px; color:var(--muted); }
-.api-info a { color:var(--cyan); text-decoration:none; border-bottom:1px solid rgba(76,201,240,.3); }
-.key-row { display:flex; gap:8px; flex:2; min-width:240px; }
-.key-row input {
-  flex:1; background:var(--surf); border:1px solid rgba(76,201,240,.25);
-  border-radius:3px; color:var(--text); font-family:'DM Mono',monospace;
-  font-size:12px; padding:9px 14px; outline:none; transition:border-color .2s;
-}
-.key-row input:focus { border-color:var(--cyan); }
-.btn-key {
-  padding:9px 16px; background:rgba(76,201,240,.12);
-  border:1px solid rgba(76,201,240,.3); border-radius:3px;
-  color:var(--cyan); font-family:'DM Mono',monospace;
-  font-size:10px; letter-spacing:.12em; text-transform:uppercase;
-  cursor:pointer; white-space:nowrap; transition:all .2s;
-}
-.btn-key:hover { background:var(--cyan); color:var(--bg); }
-.key-status { font-size:10px; margin-top:5px; letter-spacing:.1em; }
-.key-status.ok  { color:var(--green); }
-.key-status.bad { color:var(--red); }
-
-/* ── GRID 2 COL ── */
-.g2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
-@media(max-width:640px){ .g2,.g3{grid-template-columns:1fr;} h1{font-size:42px;} }
-
-/* ── FIELD ── */
-.field { display:flex; flex-direction:column; gap:7px; }
-.field label { font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--muted); }
-
-input[type=text], input[type=password], select, textarea {
-  background:var(--surf); border:1px solid var(--border2);
-  border-radius:3px; color:var(--text);
-  font-family:'DM Mono',monospace; font-size:12.5px;
-  padding:10px 14px; outline:none; transition:border-color .2s; width:100%;
-}
-input:focus, select:focus, textarea:focus { border-color:var(--cyan); }
-select option { background:var(--surf); }
-
-textarea { min-height:220px; resize:vertical; line-height:1.75; }
-
-/* ── CHARACTER TABS ── */
-.char-tabs { display:flex; gap:0; margin-bottom:18px; border:1px solid var(--border2); border-radius:3px; overflow:hidden; }
-.char-tab {
-  flex:1; padding:10px 8px; font-family:'DM Mono',monospace;
-  font-size:10px; letter-spacing:.12em; text-transform:uppercase;
-  background:transparent; border:none; color:var(--muted);
-  cursor:pointer; transition:all .2s; text-align:center;
-}
-.char-tab.active { background:var(--red); color:#fff; }
-.char-tab:hover:not(.active) { background:var(--card2); color:var(--text); }
-
-.tab-panel { display:none; }
-.tab-panel.active { display:block; }
-
-/* ── CUSTOM CHAR (reference images) ── */
-.ref-upload-area {
-  border:2px dashed var(--border2); border-radius:4px;
-  padding:32px 20px; text-align:center;
-  cursor:pointer; transition:border-color .2s, background .2s;
-  position:relative;
-}
-.ref-upload-area:hover, .ref-upload-area.drag { border-color:var(--cyan); background:rgba(76,201,240,.04); }
-.ref-upload-area input { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; }
-.upload-icon { font-size:32px; margin-bottom:10px; }
-.upload-text { font-size:11px; color:var(--muted); letter-spacing:.05em; line-height:1.6; }
-.upload-text strong { color:var(--cyan); }
-
-.ref-previews { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
-.ref-preview {
-  width:80px; height:80px; border-radius:3px; overflow:hidden;
-  border:1px solid var(--border2); position:relative;
-}
-.ref-preview img { width:100%; height:100%; object-fit:cover; }
-.ref-preview .rm {
-  position:absolute; top:2px; right:2px;
-  background:rgba(230,57,70,.85); border:none; border-radius:2px;
-  color:#fff; font-size:9px; padding:1px 5px; cursor:pointer;
-}
-
-.analyze-refs-btn {
-  margin-top:14px; width:100%; padding:11px;
-  background:rgba(76,201,240,.1); border:1px solid rgba(76,201,240,.3);
-  border-radius:3px; color:var(--cyan);
-  font-family:'DM Mono',monospace; font-size:11px;
-  letter-spacing:.15em; text-transform:uppercase; cursor:pointer;
-  transition:all .2s;
-}
-.analyze-refs-btn:hover { background:var(--cyan); color:var(--bg); }
-.analyze-refs-btn:disabled { opacity:.4; cursor:not-allowed; }
-
-.char-analysis-result {
-  margin-top:12px; background:var(--surf);
-  border:1px solid var(--border); border-radius:3px;
-  padding:14px 16px; font-size:11px; line-height:1.8; color:#b0b0cc;
-  display:none;
-}
-.char-analysis-result.show { display:block; }
-
-/* ── PRESET CHARS ── */
-.preset-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px; }
-.preset-card {
-  background:var(--surf); border:1px solid var(--border2);
-  border-radius:3px; padding:14px 12px; cursor:pointer;
-  transition:all .2s; text-align:center;
-}
-.preset-card:hover { border-color:var(--cyan); background:rgba(76,201,240,.05); }
-.preset-card.selected { border-color:var(--red); background:rgba(230,57,70,.07); }
-.preset-card .preset-icon { font-size:28px; margin-bottom:8px; }
-.preset-card .preset-name { font-size:10px; letter-spacing:.1em; color:var(--text); text-transform:uppercase; }
-.preset-card .preset-desc { font-size:9px; color:var(--muted); margin-top:4px; line-height:1.5; }
-
-/* ── CUSTOM FIELDS ── */
-.custom-char-fields { margin-top:16px; }
-
-/* ── BIG ANALYZE BTN ── */
-.btn-analyze {
-  width:100%; padding:17px; background:var(--red);
-  border:none; border-radius:3px; color:#fff;
-  font-family:'Bebas Neue',sans-serif; font-size:24px;
-  letter-spacing:.15em; cursor:pointer;
-  transition:transform .15s, box-shadow .15s;
-  margin-top:10px; position:relative; overflow:hidden;
-}
-.btn-analyze::after {
-  content:''; position:absolute; inset:0;
-  background:linear-gradient(135deg,rgba(255,255,255,.1),transparent 60%);
-  pointer-events:none;
-}
-.btn-analyze:hover { transform:translateY(-2px); box-shadow:0 10px 36px rgba(230,57,70,.45); }
-.btn-analyze:active { transform:translateY(0); }
-.btn-analyze:disabled { opacity:.4; cursor:not-allowed; transform:none; box-shadow:none; }
-
-/* ── LOADING ── */
-.loading { display:none; text-align:center; padding:60px 0; }
-.loading.on { display:block; }
-.spin {
-  width:40px; height:40px; margin:0 auto 20px;
-  border:2px solid var(--border); border-top-color:var(--red);
-  border-radius:50%; animation:spin .7s linear infinite;
-}
-.load-title { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted); }
-.load-step  { font-size:12px; color:var(--cyan); margin-top:9px; min-height:18px; }
-
-/* ── ERROR ── */
-.errbox {
-  background:rgba(230,57,70,.07); border:1px solid rgba(230,57,70,.3);
-  border-radius:3px; padding:16px 20px; font-size:12px;
-  color:var(--red); display:none; margin-bottom:16px; line-height:1.7;
-}
-.errbox.on { display:block; }
-
-/* ── OUTPUT ── */
-#out { display:none; }
-#out.on { display:block; }
-
-.out-header {
-  display:flex; align-items:center; justify-content:space-between;
-  margin-bottom:24px; flex-wrap:wrap; gap:12px;
-}
-.out-title {
-  font-family:'Bebas Neue',sans-serif; font-size:32px;
-  letter-spacing:.1em; color:var(--gold);
-}
-
-.chips { display:flex; gap:8px; flex-wrap:wrap; }
-.chip {
-  background:var(--surf); border:1px solid var(--border);
-  border-radius:2px; padding:5px 11px; font-size:10px;
-  letter-spacing:.08em; color:var(--muted);
-}
-.chip b { color:var(--cyan); }
-
-/* ── IMAGE CARDS ── */
-.icard {
-  background:var(--surf); border:1px solid var(--border);
-  border-left:3px solid var(--red); border-radius:3px;
-  padding:20px 22px; margin-bottom:14px;
-  opacity:0; animation:up .35s forwards;
-  transition:border-left-color .2s;
-}
-.icard:hover { border-left-color:var(--gold); }
-
-.icard-top { display:flex; align-items:flex-start; gap:14px; margin-bottom:14px; }
-.inum { font-family:'Bebas Neue',sans-serif; font-size:38px; color:var(--red); line-height:1; min-width:52px; }
-.imeta { flex:1; }
-.itrigger {
-  font-size:10px; color:var(--muted); letter-spacing:.1em;
-  text-transform:uppercase; margin-bottom:6px;
-  display:flex; align-items:center; flex-wrap:wrap; gap:8px;
-}
-.iline {
-  font-size:13px; color:var(--text); line-height:1.5;
-  border-left:2px solid var(--cyan); padding-left:10px;
-  font-style:italic;
-}
-
-.sec-lbl {
-  font-size:9px; letter-spacing:.2em; text-transform:uppercase;
-  color:var(--muted); margin:14px 0 8px;
-}
-
-.pbox {
-  background:var(--bg); border:1px solid var(--border);
-  border-radius:3px; padding:14px 16px; padding-right:84px;
-  font-size:11.5px; line-height:1.9; color:#bebedd; position:relative;
-}
-
-.cpybtn {
-  position:absolute; top:10px; right:10px;
-  background:var(--dim); border:none; border-radius:2px;
-  color:var(--muted); font-family:'DM Mono',monospace;
-  font-size:9px; letter-spacing:.1em; padding:5px 12px;
-  cursor:pointer; text-transform:uppercase; transition:all .2s;
-}
-.cpybtn:hover { background:var(--cyan); color:var(--bg); }
-.cpybtn.ok    { background:var(--green); color:var(--bg); }
-
-/* ── WHISK TIP BOX ── */
-.whisk-tip {
-  background:rgba(123,94,167,.08); border:1px solid rgba(123,94,167,.25);
-  border-radius:3px; padding:14px 16px; margin-top:10px;
-  font-size:11px; line-height:1.8; color:#b0a0cc; display:none;
-}
-.whisk-tip.show { display:block; }
-.whisk-tip strong { color:#c4a8ff; font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
-
-/* ── BADGES ── */
-.badge {
-  display:inline-block; padding:2px 9px; border-radius:2px;
-  font-size:9px; letter-spacing:.1em; text-transform:uppercase;
-}
-.b-ACTION     { background:rgba(230,57,70,.14);   color:var(--red);    border:1px solid rgba(230,57,70,.3); }
-.b-EMOTION    { background:rgba(76,201,240,.1);   color:var(--cyan);   border:1px solid rgba(76,201,240,.25); }
-.b-ESTABLISH  { background:rgba(244,162,97,.1);   color:var(--gold);   border:1px solid rgba(244,162,97,.25); }
-.b-TRANSITION { background:rgba(100,100,130,.13); color:var(--muted);  border:1px solid var(--border); }
-
-/* ── EXPORT ROW ── */
-.exp-row { display:flex; gap:10px; margin-top:28px; flex-wrap:wrap; }
-.btn-exp {
-  flex:1; min-width:120px; padding:12px 16px;
-  border:1px solid var(--border); border-radius:3px;
-  background:transparent; color:var(--text);
-  font-family:'DM Mono',monospace; font-size:10px;
-  letter-spacing:.15em; text-transform:uppercase;
-  cursor:pointer; transition:all .2s;
-}
-.btn-exp:hover          { background:var(--cyan);   color:var(--bg); border-color:var(--cyan); }
-.btn-exp.gold           { border-color:var(--gold);  color:var(--gold); }
-.btn-exp.gold:hover     { background:var(--gold);    color:var(--bg); border-color:var(--gold); }
-
-/* ── DIVIDER ── */
-.div { height:1px; background:linear-gradient(90deg,transparent,var(--border),transparent); margin:24px 0; }
-
-/* ── ANIMS ── */
-@keyframes up   { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-@keyframes spin { to{transform:rotate(360deg)} }
-
-::-webkit-scrollbar      { width:5px; }
-::-webkit-scrollbar-track{ background:var(--bg); }
-::-webkit-scrollbar-thumb{ background:var(--border); border-radius:3px; }
+/* ── Divider / Scrollbar ── */
+hr { border-color: #252535 !important; margin: 8px 0 !important; }
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-track { background:#080810; }
+::-webkit-scrollbar-thumb { background:#252535; border-radius:3px; }
 </style>
-</head>
-<body>
-<div class="wrap">
+""", unsafe_allow_html=True)
 
-<!-- HEADER -->
-<header>
-  <div class="eyebrow">✦ POV Niche · Gemini 2.0 · Whisk Optimized</div>
-  <h1>SCRIPT <em>IMAGE</em><small>MAPPER PRO</small></h1>
-  <p class="tagline">Paste script → AI maps every visual moment → Get numbered prompts with full character consistency</p>
-</header>
 
-<!-- API KEY -->
-<div class="api-strip">
-  <div>🔑</div>
-  <div class="api-info">
-    <strong>Gemini API Key</strong>
-    <span>Free key → <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a></span>
-    <div class="key-status bad" id="keyStatus">⚠ No key saved</div>
-  </div>
-  <div class="key-row">
-    <input type="password" id="apiKeyInput" placeholder="Paste Gemini API key (AIza...)">
-    <button class="btn-key" onclick="saveKey()">Save</button>
-  </div>
-</div>
+# ================================================================
+# DATA
+# ================================================================
+PRESETS = [
+    {"id": "agent",     "icon": "🕵️", "name": "Default Agent",      "desc": "Brown hair, blue shirt",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, short brown hair, wearing light blue short-sleeve shirt and dark navy jeans, average height slim build, white hands, consistent character design throughout"},
+    {"id": "tactical",  "icon": "🪖", "name": "Tactical Operator",   "desc": "Black hair, navy jacket",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, short black hair, wearing navy blue tactical zip jacket and gray cargo pants with black combat boots, athletic build, white hands, consistent character design throughout"},
+    {"id": "detective", "icon": "🔍", "name": "Detective",            "desc": "Slicked hair, olive suit",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, dark slicked-back hair, wearing olive green blazer over beige dress shirt with brown leather shoes, medium build, white hands, consistent character design throughout"},
+    {"id": "rebel",     "icon": "🔥", "name": "Street Rebel",         "desc": "Spiky hair, dark hoodie",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, dark spiky hair, wearing dark gray hoodie and black jeans with white sneakers, slim build, white hands, consistent character design throughout"},
+    {"id": "soldier",   "icon": "⚔️", "name": "Soldier",              "desc": "Buzz cut, all-black gear",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, military buzz cut brown hair, wearing all-black tactical military vest and pants with black combat boots, muscular broad build, white hands, consistent character design throughout"},
+    {"id": "corporate", "icon": "💼", "name": "Corporate",            "desc": "Neat hair, turtleneck",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, neatly combed black hair, wearing black turtleneck and dark trousers with leather shoes, tall slim build, white hands, consistent character design throughout"},
+    {"id": "scientist", "icon": "🔬", "name": "Scientist",            "desc": "Brown hair, lab coat",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, short brown hair, wearing white lab coat over blue shirt with dark pants, average build, white hands, consistent character design throughout"},
+    {"id": "criminal",  "icon": "🎭", "name": "Criminal",             "desc": "Dark hair, black jacket",
+     "anchor": "protagonist: white blank oval face, small dot eyes, simple line mouth, dark messy hair, wearing black leather jacket and dark jeans with black boots, lean build, white hands, consistent character design throughout"},
+]
 
-<!-- ① CHARACTER SETUP -->
-<div class="card">
-  <div class="slabel">① Character Setup</div>
-
-  <div class="char-tabs">
-    <button class="char-tab active" onclick="switchTab('preset')">🎭 Preset Characters</button>
-    <button class="char-tab"        onclick="switchTab('custom')">🖼 Custom (Reference Images)</button>
-    <button class="char-tab"        onclick="switchTab('manual')">✏️ Manual Description</button>
-  </div>
-
-  <!-- PRESET TAB -->
-  <div class="tab-panel active" id="tab-preset">
-    <div class="preset-grid" id="presetGrid"></div>
-  </div>
-
-  <!-- CUSTOM REFERENCE TAB -->
-  <div class="tab-panel" id="tab-custom">
-    <div class="ref-upload-area" id="uploadArea">
-      <input type="file" id="refFiles" accept="image/*" multiple onchange="addRefImages(event)">
-      <div class="upload-icon">📷</div>
-      <div class="upload-text">
-        <strong>Drop 2–4 reference images here</strong><br>
-        AI will analyze them and extract your character's visual identity<br>
-        <span style="font-size:10px;color:var(--dim)">Supports: JPG, PNG, WEBP</span>
-      </div>
-    </div>
-    <div class="ref-previews" id="refPreviews"></div>
-    <button class="analyze-refs-btn" id="analyzeRefsBtn" onclick="analyzeRefs()" disabled>
-      🔍 Analyze References → Extract Character Identity
-    </button>
-    <div class="char-analysis-result" id="charAnalysisResult"></div>
-  </div>
-
-  <!-- MANUAL TAB -->
-  <div class="tab-panel" id="tab-manual">
-    <div class="g2" style="margin-bottom:12px">
-      <div class="field">
-        <label>Hair Style & Color</label>
-        <input type="text" id="m_hair" placeholder="e.g. short brown hair, side-swept">
-      </div>
-      <div class="field">
-        <label>Face Style</label>
-        <select id="m_face">
-          <option value="white blank oval face, dot eyes, simple line mouth (faceless POV style)">Faceless — White Oval (POV Default)</option>
-          <option value="simple cartoon face, minimal features, dot eyes, small nose">Simple Cartoon Face</option>
-          <option value="semi-detailed cartoon face, expressive eyes, defined jawline">Semi-Detailed Cartoon</option>
-          <option value="realistic face, detailed features, photorealistic">Realistic</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Skin Tone</label>
-        <select id="m_skin">
-          <option value="white/pale skin">White / Pale</option>
-          <option value="light tan skin">Light Tan</option>
-          <option value="medium brown skin">Medium Brown</option>
-          <option value="dark brown skin">Dark Brown</option>
-          <option value="East Asian skin tone">East Asian</option>
-          <option value="South Asian skin tone">South Asian</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Build / Height</label>
-        <select id="m_build">
-          <option value="average height, slim build">Average / Slim</option>
-          <option value="tall, athletic build">Tall / Athletic</option>
-          <option value="short, compact build">Short / Compact</option>
-          <option value="muscular, broad-shouldered">Muscular</option>
-        </select>
-      </div>
-    </div>
-    <div class="field">
-      <label>Default Outfit</label>
-      <select id="m_outfit">
-        <option value="light blue short-sleeve shirt, dark navy jeans, brown sneakers">Blue Shirt + Dark Jeans (Civilian)</option>
-        <option value="navy blue tactical zip jacket, gray cargo pants, black combat boots">Navy Tactical Jacket + Cargo Pants (Agent)</option>
-        <option value="olive green blazer, beige dress shirt, brown leather shoes">Olive Suit (Detective / Official)</option>
-        <option value="all-black military tactical vest, black pants, black boots">All-Black Military Tactical</option>
-        <option value="dark gray hoodie, black jeans, white sneakers">Dark Hoodie + Black Jeans</option>
-        <option value="white lab coat over blue shirt, dark pants">Lab Coat (Scientist / Doctor)</option>
-        <option value="black turtleneck, dark trousers, leather shoes">Black Turtleneck (Corporate / Spy)</option>
-      </select>
-    </div>
-    <div class="field" style="margin-top:12px">
-      <label>Extra Details (optional)</label>
-      <input type="text" id="m_extra" placeholder="e.g. scar on left cheek, glasses, beard, tattoo on neck...">
-    </div>
-  </div>
-</div>
-
-<!-- ② SCENE & STYLE SETTINGS -->
-<div class="card">
-  <div class="slabel">② Scene & Style Settings</div>
-  <div class="g3">
-    <div class="field">
-      <label>Art Style</label>
-      <select id="artStyle">
-        <option value="2D flat animation, clean bold black outlines, cel-shaded, muted desaturated palette, no texture on faces, cartoon illustration">Flat 2D Animation ✦ Recommended</option>
-        <option value="2D animation, slightly detailed linework, cinematic lighting, muted color palette">Cinematic 2D Cartoon</option>
-        <option value="simple clean cartoon, minimal shading, flat colors, clear outlines">Minimal Clean Cartoon</option>
-        <option value="semi-realistic illustration, detailed shading, muted cinematic tones">Semi-Realistic Illustration</option>
-        <option value="comic book style, high contrast, bold inks, halftone shadows">Comic Book Style</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Video Theme / Niche</label>
-      <select id="theme">
-        <option value="spy and espionage thriller">🕵️ Spy & Espionage</option>
-        <option value="military and special forces">🪖 Military & Combat</option>
-        <option value="crime and organized underworld">🔫 Crime & Underworld</option>
-        <option value="government conspiracy and whistleblower">🏛️ Government Conspiracy</option>
-        <option value="survival horror and psychological thriller">😨 Survival Thriller</option>
-        <option value="corporate power and corruption">💼 Corporate Power</option>
-        <option value="post-apocalyptic wasteland">☢️ Post-Apocalyptic</option>
-        <option value="historical war and battlefield">⚔️ Historical War</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Target Platform</label>
-      <select id="platform">
-        <option value="whisk">🎨 Google Whisk</option>
-        <option value="midjourney">Midjourney</option>
-        <option value="leonardo">Leonardo AI</option>
-        <option value="ideogram">Ideogram</option>
-        <option value="dalle">DALL-E / ChatGPT</option>
-        <option value="generic">Generic (All platforms)</option>
-      </select>
-    </div>
-  </div>
-</div>
-
-<!-- ③ SCRIPT INPUT -->
-<div class="card">
-  <div class="slabel">③ Paste Your POV Script</div>
-  <textarea id="scriptInput" placeholder="Paste your full POV script here...
-
-Example:
-You wake up in a cold, grey room. No windows. No door handles on the inside. You remember last night — the USB drive, the man in the black coat, the alley behind the embassy...
-
-You check your pockets. Empty. But then you notice something scratched into the concrete floor beneath your feet. Coordinates. And a name you recognize.
-
-Your handler's name."></textarea>
-  <button class="btn-analyze" id="analyzeBtn" onclick="analyzeScript()">
-    ▶ ANALYZE SCRIPT — GENERATE IMAGE MAP
-  </button>
-</div>
-
-<!-- ERROR -->
-<div class="errbox" id="errBox"></div>
-
-<!-- LOADING -->
-<div class="loading" id="loadBox">
-  <div class="spin"></div>
-  <div class="load-title">Gemini is analyzing your script</div>
-  <div class="load-step" id="loadStep">Reading narrative structure...</div>
-</div>
-
-<!-- OUTPUT -->
-<div id="out">
-  <div class="out-header">
-    <div class="out-title">📋 IMAGE MAPPING SHEET</div>
-    <div class="chips" id="chips"></div>
-  </div>
-  <div id="icards"></div>
-  <div class="exp-row">
-    <button class="btn-exp gold" onclick="exportTxt()">⬇ Export .txt</button>
-    <button class="btn-exp"      onclick="copyAll()">⎘ Copy All Prompts</button>
-    <button class="btn-exp"      onclick="resetTool()">↺ New Script</button>
-  </div>
-</div>
-
-</div><!-- /wrap -->
-
-<script>
-// ═══════════════════════════════════════════════════════════════
-// PRESET CHARACTERS
-// ═══════════════════════════════════════════════════════════════
-const PRESETS = [
-  {
-    id:'default-agent',
-    icon:'🕵️',
-    name:'Default Agent',
-    desc:'Brown hair, blue shirt, civilian look',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, short brown hair, wearing light blue short-sleeve shirt and dark navy jeans, average height slim build, white hands, consistent character design throughout'
-  },
-  {
-    id:'tactical-operator',
-    icon:'🪖',
-    name:'Tactical Operator',
-    desc:'Black hair, navy tactical gear',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, short black hair, wearing navy blue tactical zip jacket and gray cargo pants with black combat boots, athletic build, white hands, consistent character design throughout'
-  },
-  {
-    id:'detective',
-    icon:'🔍',
-    name:'Detective',
-    desc:'Dark slicked hair, olive suit',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, dark slicked-back hair, wearing olive green blazer over beige dress shirt with brown leather shoes, medium build, white hands, consistent character design throughout'
-  },
-  {
-    id:'rebel',
-    icon:'🔥',
-    name:'Street Rebel',
-    desc:'Spiky dark hair, dark hoodie',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, dark spiky hair, wearing dark gray hoodie and black jeans with white sneakers, slim build, white hands, consistent character design throughout'
-  },
-  {
-    id:'soldier',
-    icon:'⚔️',
-    name:'Soldier',
-    desc:'Buzz cut, all-black military',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, military buzz cut brown hair, wearing all-black tactical military vest and pants with black combat boots, muscular broad build, white hands, consistent character design throughout'
-  },
-  {
-    id:'executive',
-    icon:'💼',
-    name:'Corporate',
-    desc:'Neat hair, black turtleneck',
-    anchor:'protagonist: white blank oval face, small dot eyes, simple line mouth, neatly combed black hair, wearing black turtleneck and dark trousers with leather shoes, tall slim build, white hands, consistent character design throughout'
-  },
-];
-
-let selectedPreset = PRESETS[0];
-let refImages = [];         // base64 strings
-let charAnalysisText = '';  // from Gemini vision
-let allResults = [];
-let activeTab = 'preset';
-
-// ── render presets ──
-function renderPresets() {
-  const grid = document.getElementById('presetGrid');
-  grid.innerHTML = PRESETS.map(p => `
-    <div class="preset-card ${p.id===selectedPreset.id?'selected':''}" onclick="selectPreset('${p.id}')">
-      <div class="preset-icon">${p.icon}</div>
-      <div class="preset-name">${p.name}</div>
-      <div class="preset-desc">${p.desc}</div>
-    </div>
-  `).join('');
+PLATFORM_SUFFIXES = {
+    "🎨 Google Whisk":  "--style flat 2D animation --consistency high --aspect 16:9",
+    "Midjourney":       "--style raw --ar 16:9 --v 6.1 --cw 100",
+    "Leonardo AI":      "Style: Illustration, consistent character, aspect ratio 16:9",
+    "Ideogram":         "Style: Illustration. Aspect: 16:9.",
+    "DALL-E / ChatGPT": "digital illustration, consistent character style, 16:9 aspect ratio",
+    "Generic":          "16:9 aspect ratio, consistent character, animation style",
 }
 
-function selectPreset(id) {
-  selectedPreset = PRESETS.find(p=>p.id===id) || PRESETS[0];
-  renderPresets();
+ART_STYLES = {
+    "Flat 2D Animation ✦":  "2D flat animation, clean bold black outlines, cel-shaded, muted desaturated palette, no texture on faces",
+    "Cinematic 2D Cartoon": "2D animation, detailed linework, cinematic lighting, muted color palette",
+    "Minimal Cartoon":      "simple clean cartoon, minimal shading, flat colors, clear outlines",
+    "Semi-Realistic":       "semi-realistic illustration, detailed shading, muted cinematic tones",
+    "Comic Book":           "comic book style, high contrast, bold inks, halftone shadows",
 }
 
-renderPresets();
-
-// ─── TABS ───────────────────────────────────────────────────────
-function switchTab(name) {
-  activeTab = name;
-  document.querySelectorAll('.char-tab').forEach((t,i)=>{
-    const tabs = ['preset','custom','manual'];
-    t.classList.toggle('active', tabs[i]===name);
-  });
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.getElementById('tab-'+name).classList.add('active');
+VIDEO_THEMES = {
+    "🕵️ Spy & Espionage":  "spy and espionage thriller",
+    "🪖 Military & Combat": "military and special forces",
+    "🔫 Crime & Underworld":"crime and organized underworld",
+    "🏛️ Gov Conspiracy":    "government conspiracy",
+    "😨 Survival Thriller": "survival horror and psychological thriller",
+    "💼 Corporate Power":   "corporate power and corruption",
+    "☢️ Post-Apocalyptic":  "post-apocalyptic wasteland",
+    "⚔️ Historical War":    "historical war and battlefield",
 }
 
-// ─── REFERENCE IMAGES ───────────────────────────────────────────
-function addRefImages(e) {
-  const files = Array.from(e.target.files);
-  files.forEach(file => {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      refImages.push(ev.target.result); // data URL
-      renderRefPreviews();
-    };
-    reader.readAsDataURL(file);
-  });
+BADGE_STYLES = {
+    "ESTABLISH":  ("background:rgba(244,162,97,.12);color:#f4a261;border:1px solid rgba(244,162,97,.3)", "🌅"),
+    "ACTION":     ("background:rgba(230,57,70,.14);color:#e63946;border:1px solid rgba(230,57,70,.35)",  "⚡"),
+    "EMOTION":    ("background:rgba(76,201,240,.1);color:#4cc9f0;border:1px solid rgba(76,201,240,.3)",  "💠"),
+    "TRANSITION": ("background:rgba(100,100,130,.13);color:#686882;border:1px solid #323248",            "🔄"),
 }
 
-function renderRefPreviews() {
-  const container = document.getElementById('refPreviews');
-  container.innerHTML = refImages.map((src,i)=>`
-    <div class="ref-preview">
-      <img src="${src}" alt="ref ${i+1}">
-      <button class="rm" onclick="removeRef(${i})">✕</button>
-    </div>
-  `).join('');
-  document.getElementById('analyzeRefsBtn').disabled = refImages.length === 0;
+
+# ================================================================
+# SESSION STATE INIT
+# ================================================================
+defaults = {
+    "api_key":         "",      # stored Gemini API key
+    "api_key_saved":   False,   # whether key is saved this session
+    "selected_preset": "agent",
+    "results":         [],
+    "analyzed_script": "",
+    "platform_used":   "🎨 Google Whisk",
 }
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-function removeRef(i) {
-  refImages.splice(i,1);
-  renderRefPreviews();
-}
 
-// drag-drop
-const ua = document.getElementById('uploadArea');
-ua.addEventListener('dragover', e=>{ e.preventDefault(); ua.classList.add('drag'); });
-ua.addEventListener('dragleave', ()=>ua.classList.remove('drag'));
-ua.addEventListener('drop', e=>{
-  e.preventDefault(); ua.classList.remove('drag');
-  const files = Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'));
-  files.forEach(file => {
-    const r = new FileReader();
-    r.onload = ev => { refImages.push(ev.target.result); renderRefPreviews(); };
-    r.readAsDataURL(file);
-  });
-});
+# ================================================================
+# HELPER FUNCTIONS
+# ================================================================
+def get_char_anchor(tab: str, preset_id: str, manual: dict) -> str:
+    if tab == "preset":
+        p = next((x for x in PRESETS if x["id"] == preset_id), PRESETS[0])
+        return p["anchor"]
+    hair   = manual.get("hair", "short brown hair") or "short brown hair"
+    face   = manual.get("face", "white blank oval face, dot eyes, simple line mouth, faceless POV style")
+    skin   = manual.get("skin", "white pale skin")
+    build  = manual.get("build", "average height slim build")
+    outfit = manual.get("outfit", "light blue short-sleeve shirt, dark navy jeans, brown sneakers")
+    extra  = manual.get("extra", "").strip()
+    return f"protagonist: {face}, {hair}, {skin}, {build}, wearing {outfit}{', ' + extra if extra else ''}, consistent character design throughout"
 
-// ── Analyze reference images with Gemini Vision ──
-async function analyzeRefs() {
-  const key = getKey();
-  if (!key) { showErr('Save your Gemini API key first.'); return; }
-  if (refImages.length === 0) return;
 
-  const btn = document.getElementById('analyzeRefsBtn');
-  btn.disabled = true; btn.textContent = '⏳ Analyzing...';
+def build_system_prompt(char_anchor: str, art: str, theme: str, platform: str) -> str:
+    whisk_note = ""
+    if "whisk" in platform.lower():
+        whisk_note = "\n\n## WHISK OPTIMIZATION:\nWhisk uses subject + style + scene. Write each prompt as a unified description covering all three. Keep it natural and flowing."
+    return f"""You are an expert visual director for POV-style animated YouTube videos in the "{theme}" niche.
 
-  const parts = [
-    { text: `You are a character design analyst. Analyze these ${refImages.length} reference image(s) and extract a precise, detailed visual character description suitable for text-to-image AI prompts.
+TASK: Analyze the given script and create a precise IMAGE MAPPING SHEET as a JSON array.
 
-Focus on:
-1. Face shape and features (be very specific)
-2. Hair: color, length, style, texture
-3. Skin tone
-4. Body type and proportions
-5. Any distinctive features (scars, glasses, beard, etc.)
-6. Clothing style if visible
+## PACING RULES (strictly follow):
+- NEVER place an image on every sentence — this creates a slideshow effect, avoid it
+- NEVER go more than 70 words without at least one image
+- Place MORE images during: action sequences, new location reveals, dramatic discoveries, emotional peaks, confrontations
+- Place FEWER images during: internal monologue, explanatory narration, dialogue-heavy sections
+- Average: 1 image per 40-65 words, but vary based on dramatic need
+- Total count: 8-14 images for 300-500 word script, 14-20 for 500-900 words
 
-Output a single, dense paragraph (no headings) that acts as a character anchor for image generation. Start with "protagonist:" and write it as a prompt fragment. Be precise enough that every generated image will show the same character.` }
-  ];
+## SCENE TYPES (use exactly as written):
+- ESTABLISH — New location or situation introduction
+- ACTION — Physical movement, confrontation, activity
+- EMOTION — Close-up emotional reaction, revelation, internal conflict
+- TRANSITION — Scene change, time skip, tone shift
 
-  refImages.forEach(src => {
-    const [meta, data] = src.split(',');
-    const mimeType = meta.match(/:(.*?);/)[1];
-    parts.push({ inline_data: { mime_type: mimeType, data } });
-  });
+## CHARACTER CONSISTENCY (CRITICAL):
+Use this character anchor VERBATIM in every prompt where the protagonist appears:
+"{char_anchor}"
+Never change hair, face, outfit, or build between images.{whisk_note}
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ role:'user', parts }] })
-      }
-    );
-    const data = await res.json();
-    charAnalysisText = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('') || '';
-    if (!charAnalysisText) throw new Error('Empty response from Gemini');
+## PROMPT FORMULA:
+[ART STYLE] + [CHARACTER ANCHOR] + [POSE/ACTION] + [ENVIRONMENT] + [LIGHTING] + [MOOD] + [CAMERA ANGLE] + [END TAGS]
 
-    const box = document.getElementById('charAnalysisResult');
-    box.textContent = '✓ Character extracted:\n\n' + charAnalysisText;
-    box.classList.add('show');
-  } catch(err) {
-    showErr('Reference analysis failed: ' + err.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '🔍 Re-analyze References';
-  }
-}
+ART STYLE to start every prompt: "{art}"
 
-// ─── BUILD CHARACTER ANCHOR ──────────────────────────────────────
-function getCharAnchor() {
-  if (activeTab === 'preset') return selectedPreset.anchor;
-  if (activeTab === 'custom') {
-    return charAnalysisText
-      ? charAnalysisText
-      : 'protagonist: white blank oval face, dot eyes, brown short hair, casual outfit, consistent character design';
-  }
-  // manual
-  const hair   = document.getElementById('m_hair').value   || 'short brown hair';
-  const face   = document.getElementById('m_face').value;
-  const skin   = document.getElementById('m_skin').value;
-  const build  = document.getElementById('m_build').value;
-  const outfit = document.getElementById('m_outfit').value;
-  const extra  = document.getElementById('m_extra').value;
-  return `protagonist: ${face}, ${hair}, ${skin}, ${build}, wearing ${outfit}${extra ? ', '+extra : ''}, consistent character design throughout`;
-}
+LIGHTING by scene type:
+- ESTABLISH: soft ambient light, even exposure, natural environmental glow
+- ACTION: harsh directional side-lighting, strong cast shadows, high contrast
+- EMOTION: single dramatic overhead spotlight, pitch black background
+- TRANSITION: dim atmospheric haze, desaturated mist, soft diffuse glow
 
-// ─── PLATFORM-SPECIFIC SUFFIX ────────────────────────────────────
-function getPlatformSuffix(platform) {
-  const s = {
-    whisk:      '--style flat 2D animation --consistency high --aspect 16:9',
-    midjourney: '--style raw --ar 16:9 --v 6.1 --cref [your_character_ref] --cw 100',
-    leonardo:   'Leonardo style: Illustration, consistent character, aspect ratio 16:9',
-    ideogram:   'Style: Illustration. Aspect: 16:9.',
-    dalle:      'digital illustration, consistent character style, 16:9 aspect ratio',
-    generic:    '16:9 aspect ratio, consistent character, animation style'
-  };
-  return s[platform] || s.generic;
-}
+ENVIRONMENT (always cold/oppressive):
+grey concrete corridors, dark brick alleys, dimly lit government buildings, cold urban streets at night, interrogation rooms, abandoned warehouses, underground bunkers
 
-// ─── MASTER SYSTEM PROMPT ────────────────────────────────────────
-function buildSystemPrompt(charAnchor, art, theme, platform) {
-  const platNote = platform === 'whisk'
-    ? `\n\n## WHISK-SPECIFIC RULES:\nWhisk is a Google image AI that takes style + subject + scene as separate inputs. Structure each prompt as ONE unified description but tag sections:\n[SUBJECT]: character description\n[SCENE]: environment and action\n[STYLE]: art style and mood\nMerge them naturally but keep this structure in mind for maximum Whisk compatibility.`
-    : '';
+END EVERY PROMPT WITH:
+"character consistency, same protagonist throughout, {theme} atmosphere, cinematic composition, 16:9 widescreen"
 
-  return `You are an expert visual director for POV-style animated YouTube videos in the "${theme}" niche. Your task: analyze a script and return a precise IMAGE MAPPING SHEET as a JSON array.
+## OUTPUT RULE:
+Return ONLY a raw JSON array. No markdown fences. No backticks. No explanation.
+Start directly with [ and end with ]
 
-## PACING INTELLIGENCE (critical):
-- Do NOT place an image on every sentence — avoid slideshoweffect
-- Do NOT go more than 70 words without at least one image  
-- MORE images at: action sequences, location reveals, dramatic discoveries, emotional peaks, confrontations, key dialogue moments
-- FEWER images at: internal monologue passages, transition narration, explanatory sections
-- Smart pacing: ~1 image per 40–65 words on average, varying with dramatic intensity
-- Scale: 8–14 images for 300–500 word script; 14–20 for 500–900 words
-
-## SCENE TYPES (use exactly):
-ESTABLISH — New location or situation intro
-ACTION    — Physical movement, confrontation, activity  
-EMOTION   — Close-up emotional reaction, internal conflict, revelation
-TRANSITION— Scene change, time skip, tone shift
-
-## CHARACTER CONSISTENCY LAW (never break):
-Character anchor to use in EVERY prompt that includes the protagonist:
-${charAnchor}
-
-This character description must appear verbatim in every prompt where the protagonist is visible. Never change hair, face, outfit, or build between images.${platNote}
-
-## PROMPT FORMULA (apply to every single image):
-[ART STYLE ANCHOR] + [CHARACTER ANCHOR if visible] + [ACTION/POSE] + [ENVIRONMENT] + [LIGHTING] + [MOOD] + [CAMERA ANGLE] + [CONSISTENCY TAGS]
-
-### ART STYLE ANCHOR (begin every prompt with):
-"${art}"
-
-### LIGHTING by scene type:
-ESTABLISH  → soft ambient light, even exposure, environmental glow, natural atmosphere
-ACTION     → harsh directional side-light, strong cast shadows, high contrast, dynamic
-EMOTION    → single dramatic overhead spotlight, pitch black surroundings, face illuminated
-TRANSITION → dim atmospheric haze, desaturated mist, soft diffuse glow, liminal space
-
-### ENVIRONMENT STYLE:
-Cold, muted, institutional or oppressive. Examples: grey concrete corridors, dark brick alleys, dimly lit government buildings, cold urban streets at night, interrogation rooms, abandoned warehouses, surveillance offices, underground bunkers.
-
-### MANDATORY END TAGS (on every prompt):
-"character consistency, same protagonist throughout, ${theme} atmosphere, cinematic composition, 16:9 widescreen"
-
-## OUTPUT:
-Return ONLY a raw JSON array. No markdown fences. No explanation. Start with [ end with ].
-
-Schema:
-{
-  "image_number": <int>,
+## JSON SCHEMA:
+{{
+  "image_number": <integer starting at 1>,
   "scene_type": "<ESTABLISH|ACTION|EMOTION|TRANSITION>",
-  "script_line": "<exact phrase from script>",
-  "word_count_from_start": <int>,
+  "script_line": "<exact phrase from script where image appears>",
+  "word_count_from_start": <approximate word position>,
   "image_prompt": "<complete ready-to-use prompt>"
-}`;
-}
+}}"""
 
-// ─── API KEY ─────────────────────────────────────────────────────
-function saveKey() {
-  const k = document.getElementById('apiKeyInput').value.trim();
-  if (!k) { alert('Enter a key first.'); return; }
-  localStorage.setItem('gmk', k);
-  updateKeyStatus();
-  document.getElementById('apiKeyInput').value = '';
-  document.getElementById('apiKeyInput').placeholder = '✓ Key saved';
-}
-function getKey() { return localStorage.getItem('gmk')||''; }
-function updateKeyStatus() {
-  const el = document.getElementById('keyStatus');
-  const k = getKey();
-  el.textContent = k ? `✓ Key saved (${k.slice(0,6)}••••)` : '⚠ No key saved';
-  el.className = 'key-status ' + (k ? 'ok' : 'bad');
-}
-updateKeyStatus();
 
-// ─── MAIN ANALYZE ────────────────────────────────────────────────
-async function analyzeScript() {
-  const key = getKey();
-  if (!key) { showErr('Please save your Gemini API key first.'); return; }
-  const script = document.getElementById('scriptInput').value.trim();
-  if (script.length < 60) { showErr('Please paste a longer script (min 60 chars).'); return; }
+def call_gemini(api_key: str, script_text: str, system_prompt: str) -> list:
+    client = genai.Client(api_key=api_key)
+    user_msg = (
+        "Analyze this POV script and return ONLY the raw JSON array:\n\n"
+        "---SCRIPT START---\n" + script_text + "\n---SCRIPT END---"
+    )
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=user_msg,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.65,
+            max_output_tokens=8192,
+            response_mime_type="application/json",
+        ),
+    )
+    raw = response.text.strip()
+    raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"^```\s*",     "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\s*```$",     "", raw).strip()
+    s, e = raw.find("["), raw.rfind("]")
+    if s == -1 or e == -1:
+        raise ValueError("JSON array response mein nahi mila. Script thoda lamba rakho aur dobara try karo.")
+    results = json.loads(raw[s : e + 1])
+    if not isinstance(results, list) or len(results) == 0:
+        raise ValueError("Gemini ne empty list di. Script mein aur detail add karo.")
+    return results
 
-  const charAnchor = getCharAnchor();
-  const art        = document.getElementById('artStyle').value;
-  const theme      = document.getElementById('theme').value;
-  const platform   = document.getElementById('platform').value;
 
-  document.getElementById('analyzeBtn').disabled = true;
-  document.getElementById('errBox').classList.remove('on');
-  document.getElementById('out').classList.remove('on');
-  document.getElementById('loadBox').classList.add('on');
+def build_export_text(results: list, platform: str) -> str:
+    suffix = PLATFORM_SUFFIXES.get(platform, PLATFORM_SUFFIXES["Generic"])
+    lines = [
+        "POV SCRIPT — IMAGE MAPPING SHEET",
+        "=" * 60, "",
+        f"Generated : {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Platform  : {platform}",
+        f"Total imgs: {len(results)}",
+        "", "=" * 60, "",
+    ]
+    for r in results:
+        num    = str(r.get("image_number", "?")).zfill(2)
+        stype  = r.get("scene_type", "SCENE")
+        line   = r.get("script_line", "")
+        wpos   = r.get("word_count_from_start", "?")
+        prompt = r.get("image_prompt", "")
+        lines += [
+            f"IMAGE {num} — [{stype}]",
+            f"Word position : ~{wpos}",
+            f'Script line   : "{line}"', "",
+            "TEXT-TO-IMAGE PROMPT:",
+            prompt, suffix, "",
+            "-" * 60, "",
+        ]
+    return "\n".join(lines)
 
-  const steps = [
-    'Reading narrative structure...',
-    'Identifying dramatic peaks & pacing...',
-    'Building character consistency anchors...',
-    'Mapping visual moments to script...',
-    'Generating text-to-image prompts...',
-    'Optimizing for ' + platform + '...',
-    'Finalizing mapping sheet...'
-  ];
-  let si=0;
-  const iv = setInterval(()=>{
-    if(si<steps.length) document.getElementById('loadStep').textContent=steps[si++];
-  }, 1800);
 
-  const sysPrompt = buildSystemPrompt(charAnchor, art, theme, platform);
-  const userMsg   = `Analyze this POV script. Return ONLY the raw JSON array:\n\n---\n${script}\n---`;
+# ================================================================
+# SIDEBAR  —  API KEY MANAGEMENT
+# ================================================================
+with st.sidebar:
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-      {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          system_instruction: { parts:[{ text: sysPrompt }] },
-          contents:[{ role:'user', parts:[{ text: userMsg }] }],
-          generationConfig:{
-            temperature: 0.65,
-            maxOutputTokens: 8192,
-            responseMimeType: 'application/json'
-          }
-        })
-      }
-    );
+    # ── Logo / Title ─────────────────────────────────────────────
+    st.markdown("""
+<div style="text-align:center;padding:12px 0 18px;">
+  <div style="font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:#4cc9f0;margin-bottom:6px;">✦ POV NICHE · GEMINI 2.0</div>
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.08em;color:#e6e6f0;line-height:1.1;">
+    SCRIPT<span style="color:#e63946;">IMAGE</span><br>
+    <span style="font-size:.55em;letter-spacing:.2em;color:#4cc9f0;">MAPPER PRO</span>
+  </div>
+</div>
+<hr style="border-color:#252535;margin:0 0 18px;">
+""", unsafe_allow_html=True)
 
-    clearInterval(iv);
-    if (!res.ok) {
-      const e = await res.json();
-      throw new Error(e?.error?.message || `HTTP ${res.status}`);
-    }
+    # ── API Key Section ──────────────────────────────────────────
+    st.markdown('<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:10px;">🔑 GEMINI API KEY</div>', unsafe_allow_html=True)
 
-    const data = await res.json();
-    let raw = data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
-    if (!raw) throw new Error('Gemini returned empty response.');
+    if not st.session_state.api_key_saved:
+        # ── Show input + Save button ─────────────────────────────
+        new_key = st.text_input(
+            "API Key",
+            type="password",
+            placeholder="AIzaSy...",
+            label_visibility="collapsed",
+            key="api_key_input_field",
+        )
+        save_col, _ = st.columns([1, 0.01])
+        with save_col:
+            if st.button("💾  SAVE API KEY", use_container_width=True):
+                if new_key.strip():
+                    st.session_state.api_key       = new_key.strip()
+                    st.session_state.api_key_saved = True
+                    st.rerun()
+                else:
+                    st.error("Key khali hai — paste karo!")
 
-    // clean JSON
-    raw = raw.trim()
-      .replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
+        st.markdown("""
+<div style="margin-top:8px;font-size:10px;color:#686882;line-height:1.8;">
+  Free key yahan se lo:<br>
+  <a href="https://aistudio.google.com/apikey" target="_blank"
+     style="color:#4cc9f0;">aistudio.google.com/apikey</a>
+</div>
+""", unsafe_allow_html=True)
 
-    const s=raw.indexOf('['), e2=raw.lastIndexOf(']');
-    if(s===-1||e2===-1) throw new Error('No JSON array found in response. Try again.');
+    else:
+        # ── Show saved status + Change button ────────────────────
+        masked = st.session_state.api_key[:8] + "••••••••••••" if len(st.session_state.api_key) > 8 else "••••••••"
+        st.markdown(f"""
+<div style="background:rgba(45,198,83,.08);border:1px solid rgba(45,198,83,.3);border-radius:3px;padding:10px 14px;margin-bottom:10px;">
+  <div style="font-size:9px;letter-spacing:.1em;color:#2dc653;margin-bottom:4px;">✅ API KEY SAVED</div>
+  <div style="font-size:11px;color:#686882;font-family:'DM Mono',monospace;">{masked}</div>
+</div>
+""", unsafe_allow_html=True)
+        if st.button("🔄  CHANGE KEY", use_container_width=True):
+            st.session_state.api_key       = ""
+            st.session_state.api_key_saved = False
+            st.rerun()
 
-    allResults = JSON.parse(raw.substring(s,e2+1));
-    if(!Array.isArray(allResults)||allResults.length===0)
-      throw new Error('Gemini returned empty list. Try a longer script.');
+    st.markdown('<hr style="border-color:#252535;margin:18px 0;">', unsafe_allow_html=True)
 
-    renderOutput(allResults, script, platform);
+    # ── How to use ───────────────────────────────────────────────
+    st.markdown("""
+<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:10px;">📖 HOW TO USE</div>
+<div style="font-size:11px;color:#686882;line-height:2.1;">
+① API key paste → 💾 Save<br>
+② Character preset choose karo<br>
+③ Art style + theme + platform<br>
+④ Script paste karo (60+ words)<br>
+⑤ Analyze button click karo<br>
+⑥ Prompts copy → Whisk / MJ
+</div>
+<hr style="border-color:#252535;margin:16px 0;">
+<div style="font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:#4cc9f0;margin-bottom:8px;">⚙️ MODEL</div>
+<div style="font-size:10px;color:#686882;line-height:1.9;">
+Gemini 2.0 Flash<br>
+Pacing: 40-65 words/img<br>
+Types: ESTABLISH · ACTION<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;EMOTION · TRANSITION
+</div>
+""", unsafe_allow_html=True)
 
-  } catch(err) {
-    clearInterval(iv);
-    showErr('Error: '+err.message);
-    console.error(err);
-  } finally {
-    document.getElementById('loadBox').classList.remove('on');
-    document.getElementById('analyzeBtn').disabled = false;
-  }
-}
 
-// ─── RENDER OUTPUT ───────────────────────────────────────────────
-function renderOutput(results, script, platform) {
-  const wc = script.split(/\s+/).length;
-  const sc = results.reduce((a,r)=>{ a[r.scene_type]=(a[r.scene_type]||0)+1; return a; },{});
+# ================================================================
+# MAIN — HEADER
+# ================================================================
+st.markdown("""
+<div style="text-align:center;margin-bottom:36px;position:relative;z-index:1;">
+  <div style="font-size:10px;letter-spacing:.35em;text-transform:uppercase;color:#4cc9f0;margin-bottom:10px;">
+    ✦ POV Niche · Gemini 2.0 Flash · Whisk Optimized
+  </div>
+  <div style="font-family:'Bebas Neue',sans-serif;font-size:clamp(42px,7vw,80px);letter-spacing:.04em;line-height:.92;color:#e6e6f0;">
+    SCRIPT <span style="color:#e63946;">IMAGE</span>
+    <span style="font-size:.48em;color:#4cc9f0;letter-spacing:.16em;display:block;margin-top:6px;">MAPPER PRO</span>
+  </div>
+  <p style="font-size:11px;color:#686882;margin-top:14px;font-family:'DM Mono',monospace;">
+    Script paste karo → AI har visual moment map kare → Numbered prompts with full character consistency
+  </p>
+</div>
+""", unsafe_allow_html=True)
 
-  document.getElementById('chips').innerHTML = `
-    <div class="chip">Images: <b>${results.length}</b></div>
-    <div class="chip">Script words: <b>${wc}</b></div>
-    <div class="chip">Avg interval: <b>~${Math.round(wc/results.length)} words</b></div>
-    ${Object.entries(sc).map(([k,v])=>`<div class="chip">${k}: <b>${v}</b></div>`).join('')}
-  `;
+# ── API key banner if not saved ───────────────────────────────────
+if not st.session_state.api_key_saved:
+    st.markdown("""
+<div style="background:rgba(230,57,70,.07);border:1px solid rgba(230,57,70,.3);border-radius:3px;
+            padding:12px 18px;margin-bottom:18px;font-size:12px;color:#e63946;text-align:center;">
+  ⚠️ Sidebar mein Gemini API key paste karo aur 💾 Save karo — tab analyze hoga
+</div>
+""", unsafe_allow_html=True)
 
-  const container = document.getElementById('icards');
-  container.innerHTML = '';
-  const platSuffix = getPlatformSuffix(platform);
-  const isWhisk = platform === 'whisk';
 
-  results.forEach((item,i)=>{
-    const fullPrompt = item.image_prompt + '\n\n' + platSuffix;
-    const card = document.createElement('div');
-    card.className = 'icard';
-    card.style.animationDelay = `${i*.04}s`;
-    card.innerHTML = `
-      <div class="icard-top">
-        <div class="inum">${String(item.image_number).padStart(2,'0')}</div>
-        <div class="imeta">
-          <div class="itrigger">
-            Word ~${item.word_count_from_start||'?'}
-            <span class="badge b-${item.scene_type||'TRANSITION'}">${item.scene_type||'SCENE'}</span>
-          </div>
-          <div class="iline">"${esc(item.script_line)}"</div>
-        </div>
+# ================================================================
+# STEP 1 — CHARACTER SETUP
+# ================================================================
+st.markdown("""
+<div style="background:#13131e;border:1px solid #252535;border-radius:4px;padding:20px 24px 14px;margin-bottom:14px;">
+  <div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+    <span style="width:22px;height:1px;background:#4cc9f0;flex-shrink:0;display:inline-block;"></span>
+    ① CHARACTER SETUP
+  </div>
+""", unsafe_allow_html=True)
+
+tab_preset, tab_manual = st.tabs(["🎭  Preset Characters", "✏️  Manual Builder"])
+
+with tab_preset:
+    st.markdown('<p style="font-size:10px;color:#686882;margin-bottom:12px;">Character card pe click karo to select:</p>', unsafe_allow_html=True)
+    cols = st.columns(4)
+    for i, preset in enumerate(PRESETS):
+        with cols[i % 4]:
+            is_sel   = st.session_state.selected_preset == preset["id"]
+            brd      = "#e63946" if is_sel else "#323248"
+            bg       = "rgba(230,57,70,.07)" if is_sel else "#0e0e18"
+            txt_clr  = "#e63946" if is_sel else "#e6e6f0"
+            st.markdown(f"""
+<div style="background:{bg};border:1px solid {brd};border-radius:3px;
+            padding:13px 8px;text-align:center;margin-bottom:6px;">
+  <div style="font-size:22px;margin-bottom:5px;">{preset['icon']}</div>
+  <div style="font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:{txt_clr};">{preset['name']}</div>
+  <div style="font-size:9px;color:#686882;margin-top:2px;">{preset['desc']}</div>
+</div>
+""", unsafe_allow_html=True)
+            label = "✔ Selected" if is_sel else "Select"
+            if st.button(label, key=f"p_{preset['id']}", use_container_width=True):
+                st.session_state.selected_preset = preset["id"]
+                st.rerun()
+
+with tab_manual:
+    mc1, mc2 = st.columns(2)
+    with mc1:
+        m_hair  = st.text_input("Hair Style & Color", placeholder="e.g. short brown hair, side-swept", key="m_hair")
+        m_skin  = st.selectbox("Skin Tone", ["white pale skin","light tan skin","medium brown skin","dark brown skin","East Asian skin tone","South Asian skin tone"], key="m_skin")
+    with mc2:
+        m_face  = st.selectbox("Face Style", ["white blank oval face, dot eyes, simple line mouth, faceless POV style","simple cartoon face, minimal features, dot eyes","semi-detailed cartoon face, expressive eyes, defined jawline","realistic face, detailed features"], key="m_face")
+        m_build = st.selectbox("Build", ["average height slim build","tall athletic build","short compact build","muscular broad-shouldered build"], key="m_build")
+    m_outfit = st.selectbox("Outfit", ["light blue short-sleeve shirt, dark navy jeans, brown sneakers","navy blue tactical zip jacket, gray cargo pants, black combat boots","olive green blazer, beige dress shirt, brown leather shoes","all-black military tactical vest, black pants, black boots","dark gray hoodie, black jeans, white sneakers","white lab coat over blue shirt, dark pants","black turtleneck, dark trousers, leather shoes"], key="m_outfit")
+    m_extra  = st.text_input("Extra Details (optional)", placeholder="e.g. scar on left cheek, glasses, beard...", key="m_extra")
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+# resolve active tab & char anchor
+_manual = {"hair": st.session_state.get("m_hair",""), "face": st.session_state.get("m_face","white blank oval face, dot eyes, simple line mouth, faceless POV style"), "skin": st.session_state.get("m_skin","white pale skin"), "build": st.session_state.get("m_build","average height slim build"), "outfit": st.session_state.get("m_outfit","light blue short-sleeve shirt, dark navy jeans, brown sneakers"), "extra": st.session_state.get("m_extra","")}
+_tab    = "manual" if _manual["hair"] else "preset"
+
+
+# ================================================================
+# STEP 2 — STYLE SETTINGS
+# ================================================================
+st.markdown("""
+<div style="background:#13131e;border:1px solid #252535;border-radius:4px;padding:20px 24px;margin-bottom:14px;">
+  <div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+    <span style="width:22px;height:1px;background:#4cc9f0;flex-shrink:0;display:inline-block;"></span>
+    ② STYLE SETTINGS
+  </div>
+""", unsafe_allow_html=True)
+
+sc1, sc2, sc3 = st.columns(3)
+with sc1: art_label      = st.selectbox("Art Style",      list(ART_STYLES.keys()),      key="art_sel")
+with sc2: theme_label    = st.selectbox("Video Theme",    list(VIDEO_THEMES.keys()),     key="theme_sel")
+with sc3: platform_label = st.selectbox("Image Platform", list(PLATFORM_SUFFIXES.keys()),key="platform_sel")
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================================================
+# STEP 3 — SCRIPT INPUT
+# ================================================================
+st.markdown("""
+<div style="background:#13131e;border:1px solid #252535;border-radius:4px;padding:20px 24px;margin-bottom:14px;">
+  <div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:16px;display:flex;align-items:center;gap:10px;">
+    <span style="width:22px;height:1px;background:#4cc9f0;flex-shrink:0;display:inline-block;"></span>
+    ③ PASTE YOUR POV SCRIPT
+  </div>
+""", unsafe_allow_html=True)
+
+script_input = st.text_area(
+    "Script",
+    height=220,
+    label_visibility="collapsed",
+    placeholder="""Apna full POV script yahan paste karo...
+
+Misal:
+You wake up in a cold grey room. No windows. No door handles on the inside. You remember last night — the USB drive, the man in the black coat, the alley behind the embassy...
+
+You check your pockets. Empty. But then you notice something scratched into the concrete floor beneath your feet. Coordinates. And a name you recognize. Your handler's name.""",
+    key="script_input",
+)
+
+wc = len(script_input.split()) if script_input.strip() else 0
+st.markdown(f'<p style="font-size:10px;color:#686882;text-align:right;margin:-6px 0 10px;">Words: <span style="color:#4cc9f0;">{wc}</span></p>', unsafe_allow_html=True)
+
+analyze_clicked = st.button(
+    "▶  ANALYZE SCRIPT — GENERATE IMAGE MAP",
+    use_container_width=True,
+    type="primary",
+    key="analyze_btn",
+    disabled=not st.session_state.api_key_saved,
+)
+if not st.session_state.api_key_saved:
+    st.caption("💡 Analyze button tab active hoga jab API key save hogi")
+
+st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ================================================================
+# ANALYZE
+# ================================================================
+if analyze_clicked:
+    if wc < 30:
+        st.error("❌ Script bahut chota hai — kam az kam 60 words chahiye.")
+    else:
+        char_anchor = get_char_anchor(_tab, st.session_state.selected_preset, _manual)
+        sys_prompt  = build_system_prompt(char_anchor, ART_STYLES[art_label], VIDEO_THEMES[theme_label], platform_label)
+
+        with st.spinner("🔄 Gemini analyze kar raha hai... (15-30 sec)"):
+            try:
+                results = call_gemini(st.session_state.api_key, script_input, sys_prompt)
+                st.session_state.results         = results
+                st.session_state.analyzed_script = script_input
+                st.session_state.platform_used   = platform_label
+                st.success(f"✅ Done! {len(results)} image prompts generate ho gaye!")
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+
+
+# ================================================================
+# RESULTS
+# ================================================================
+if st.session_state.results:
+    results  = st.session_state.results
+    platform = st.session_state.platform_used
+    suffix   = PLATFORM_SUFFIXES.get(platform, PLATFORM_SUFFIXES["Generic"])
+    is_whisk = "whisk" in platform.lower()
+    script_wc = len(st.session_state.analyzed_script.split())
+    avg_w     = round(script_wc / len(results)) if results else 0
+
+    st.markdown('<hr style="border-color:#252535;margin:22px 0 18px;">', unsafe_allow_html=True)
+
+    # Header
+    st.markdown("""
+<div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:.1em;color:#f4a261;margin-bottom:16px;">
+  📋 IMAGE MAPPING SHEET
+</div>
+""", unsafe_allow_html=True)
+
+    # Metrics
+    sc_cnt = {}
+    for r in results:
+        t = r.get("scene_type", "SCENE"); sc_cnt[t] = sc_cnt.get(t, 0) + 1
+
+    m1, m2, m3, m4, m5 = st.columns(5)
+    with m1: st.metric("Total Images",     len(results))
+    with m2: st.metric("Script Words",     script_wc)
+    with m3: st.metric("Avg Words/Image",  f"~{avg_w}")
+    with m4: st.metric("Platform",         platform.replace("🎨 ",""))
+    with m5: st.metric("Action Scenes",    sc_cnt.get("ACTION", 0))
+
+    # Scene type chips
+    chips = ""
+    for stype, cnt in sc_cnt.items():
+        sty, ico = BADGE_STYLES.get(stype, ("background:#1a1a2e;color:#686882;border:1px solid #323248","▸"))
+        chips += f'<span style="{sty};padding:3px 11px;border-radius:2px;font-size:9px;letter-spacing:.1em;margin-right:6px;">{ico} {stype}: <b>{cnt}</b></span>'
+    st.markdown(f'<div style="margin:14px 0 20px;">{chips}</div>', unsafe_allow_html=True)
+
+    # Image Cards
+    for item in results:
+        num        = str(item.get("image_number","?")).zfill(2)
+        stype      = item.get("scene_type","SCENE")
+        sline      = item.get("script_line","")
+        wpos       = item.get("word_count_from_start","?")
+        prompt     = item.get("image_prompt","")
+        full_p     = prompt + "\n\n" + suffix
+        bstyle, bico = BADGE_STYLES.get(stype, BADGE_STYLES["TRANSITION"])
+
+        st.markdown(f"""
+<div style="background:#0e0e18;border:1px solid #252535;border-left:3px solid #e63946;
+            border-radius:3px;padding:16px 20px 10px;margin-bottom:4px;">
+  <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:38px;color:#e63946;line-height:1;min-width:50px;">{num}</div>
+    <div style="flex:1;">
+      <div style="font-size:10px;color:#686882;letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px;display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+        Word ~{wpos}
+        <span style="{bstyle};padding:2px 9px;border-radius:2px;font-size:9px;letter-spacing:.12em;">{bico} {stype}</span>
       </div>
-      <div class="sec-lbl">▸ Text-to-Image Prompt${isWhisk?' (Whisk Optimized)':''}</div>
-      <div class="pbox">
-        <button class="cpybtn" onclick="cpyOne(this,${i})">Copy</button>
-        ${esc(fullPrompt)}
-      </div>
-      ${isWhisk?`<div class="whisk-tip show">
-        <strong>💡 Whisk Usage</strong><br>
-        In Whisk: paste the full prompt in the "Describe your image" field.
-        For even better consistency, upload one reference image of your character in the "Subject" input.
-      </div>`:''}
-    `;
-    container.appendChild(card);
-  });
+      <div style="font-size:13px;color:#e6e6f0;line-height:1.5;border-left:2px solid #4cc9f0;padding-left:9px;font-style:italic;">"{sline}"</div>
+    </div>
+  </div>
+  <div style="font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:#686882;margin-bottom:6px;">
+    ▸ Text-to-Image Prompt{'&nbsp;&nbsp;<span style="color:#7b5ea7;">(Whisk Optimized)</span>' if is_whisk else ''}
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-  const outEl = document.getElementById('out');
-  outEl.classList.add('on');
-  outEl.scrollIntoView({behavior:'smooth',block:'start'});
-}
+        # Code block = built-in copy button (clipboard icon top-right)
+        st.code(full_p, language=None)
 
-// ─── HELPERS ─────────────────────────────────────────────────────
-function cpyOne(btn,idx) {
-  const platform = document.getElementById('platform').value;
-  const fullPrompt = allResults[idx].image_prompt + '\n\n' + getPlatformSuffix(platform);
-  navigator.clipboard.writeText(fullPrompt).then(()=>{
-    btn.textContent='Copied!'; btn.classList.add('ok');
-    setTimeout(()=>{ btn.textContent='Copy'; btn.classList.remove('ok'); },2000);
-  });
-}
+        if is_whisk:
+            st.markdown("""
+<div style="background:rgba(123,94,167,.08);border:1px solid rgba(123,94,167,.25);border-radius:3px;
+            padding:10px 14px;font-size:11px;line-height:1.8;color:#b0a0cc;margin-top:-8px;margin-bottom:6px;">
+  <strong style="color:#c4a8ff;font-size:9px;letter-spacing:.12em;text-transform:uppercase;">💡 Whisk Tip</strong><br>
+  Prompt ko "Describe your image" mein paste karo. Character reference image "Subject" mein daalo.
+</div>
+""", unsafe_allow_html=True)
 
-function copyAll() {
-  const platform = document.getElementById('platform').value;
-  const platSuffix = getPlatformSuffix(platform);
-  const text = allResults.map(r=>
-    `IMAGE ${String(r.image_number).padStart(2,'0')} [${r.scene_type}]\nTrigger: "${r.script_line}"\n\nPROMPT:\n${r.image_prompt}\n${platSuffix}`
-  ).join('\n\n'+'─'.repeat(60)+'\n\n');
-  navigator.clipboard.writeText(text).then(()=>alert('All prompts copied!'));
-}
+        st.markdown('<div style="height:6px;"></div>', unsafe_allow_html=True)
 
-function exportTxt() {
-  const platform = document.getElementById('platform').value;
-  const platSuffix = getPlatformSuffix(platform);
-  const lines = [
-    'POV SCRIPT — IMAGE MAPPING SHEET',
-    '='.repeat(60),'',
-    `Generated: ${new Date().toLocaleString()}`,
-    `Platform: ${platform}`,
-    `Total Images: ${allResults.length}`,
-    '','='.repeat(60),''
-  ];
-  allResults.forEach(r=>{
-    lines.push(`IMAGE ${String(r.image_number).padStart(2,'0')} — [${r.scene_type}]`);
-    lines.push(`Word position: ~${r.word_count_from_start}`);
-    lines.push(`Script line: "${r.script_line}"`);
-    lines.push('');
-    lines.push('TEXT-TO-IMAGE PROMPT:');
-    lines.push(r.image_prompt);
-    lines.push(platSuffix);
-    lines.push('','-'.repeat(60),'');
-  });
-  const blob = new Blob([lines.join('\n')],{type:'text/plain'});
-  const a = Object.assign(document.createElement('a'),{
-    href:URL.createObjectURL(blob), download:'pov-image-map.txt'
-  });
-  a.click();
-}
+    # Export row
+    st.markdown('<hr style="border-color:#252535;margin:20px 0 14px;">', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:10px;">⬇ EXPORT</div>', unsafe_allow_html=True)
 
-function resetTool() {
-  document.getElementById('out').classList.remove('on');
-  document.getElementById('scriptInput').value='';
-  document.getElementById('errBox').classList.remove('on');
-  allResults=[];
-  window.scrollTo({top:0,behavior:'smooth'});
-}
+    exp1, exp2, exp3 = st.columns(3)
+    with exp1:
+        st.download_button(
+            "⬇  Export as .txt",
+            data=build_export_text(results, platform),
+            file_name=f"pov-image-map-{datetime.now().strftime('%Y%m%d-%H%M')}.txt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+    with exp2:
+        st.markdown('<p style="font-size:10px;color:#686882;text-align:center;padding:9px 0;">Each prompt box mein 📋 icon hai → click = copy</p>', unsafe_allow_html=True)
+    with exp3:
+        if st.button("↺  New Script", use_container_width=True):
+            st.session_state.results         = []
+            st.session_state.analyzed_script = ""
+            st.rerun()
 
-function showErr(msg) {
-  const b=document.getElementById('errBox');
-  b.innerHTML=msg+'<br><small style="color:var(--muted);margin-top:6px;display:block">Check browser console (F12) for details.</small>';
-  b.classList.add('on');
-}
-
-function esc(s){
-  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-</script>
-</body>
-</html>
+# Footer
+st.markdown("""
+<div style="text-align:center;padding:40px 0 10px;font-size:10px;color:#2a2a42;letter-spacing:.1em;">
+  POV SCRIPT → IMAGE MAPPER PRO · Gemini 2.0 Flash · Streamlit
+</div>
+""", unsafe_allow_html=True)
