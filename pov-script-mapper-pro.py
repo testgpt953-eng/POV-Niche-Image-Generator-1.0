@@ -1,14 +1,15 @@
 # ================================================================
-# POV Script → Image Mapper Pro  |  Streamlit + Gemini 2.0 Flash
+# POV Script → Image Mapper Pro  |  Streamlit + Gemini REST API
 # GitHub: create new repo → paste this as app.py
-# requirements.txt needs:  streamlit>=1.32.0   google-generativeai>=0.8.0
+# requirements.txt needs ONLY:  streamlit>=1.32.0
+# (requests is built-in to Streamlit Cloud — no extra install)
 # ================================================================
 
 import streamlit as st
 import json
 import re
 from datetime import datetime
-import google.generativeai as genai
+import requests as _requests
 
 # ── Page Config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -274,23 +275,37 @@ MODEL_OPTIONS = {
     "gemini-1.5-flash-8b":   "Gemini 1.5 Flash-8B   (15 RPM free)",
 }
 
+GEMINI_REST_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "{model}:generateContent?key={key}"
+)
+
 
 def _try_one_model(api_key: str, model_name: str, user_msg: str, sys_prompt: str) -> str:
-    """Single model call — returns raw text or raises."""
-    genai.configure(api_key=api_key)
-    mdl = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=sys_prompt,
-    )
-    resp = mdl.generate_content(
-        user_msg,
-        generation_config=genai.GenerationConfig(
-            temperature=0.65,
-            max_output_tokens=8192,
-            response_mime_type="application/json",
-        ),
-    )
-    return resp.text.strip()
+    """Direct REST call to Gemini — no SDK needed."""
+    url = GEMINI_REST_URL.format(model=model_name, key=api_key)
+    payload = {
+        "system_instruction": {"parts": [{"text": sys_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_msg}]}],
+        "generationConfig": {
+            "temperature": 0.65,
+            "maxOutputTokens": 8192,
+            "responseMimeType": "application/json",
+        },
+    }
+    resp = _requests.post(url, json=payload, timeout=120)
+    if resp.status_code == 429:
+        raise RuntimeError(f"429 RESOURCE_EXHAUSTED {resp.text[:200]}")
+    if not resp.ok:
+        data = resp.json()
+        msg = data.get('error', {}).get('message', resp.text[:300])
+        raise RuntimeError(f"API Error {resp.status_code}: {msg}")
+    data = resp.json()
+    parts = data.get('candidates', [{}])[0].get('content', {}).get('parts', [])
+    raw = ''.join(p.get('text', '') for p in parts)
+    if not raw:
+        raise RuntimeError("Empty response from Gemini. Try again.")
+    return raw.strip()
 
 
 def call_gemini(api_key: str, script_text: str, system_prompt: str,
