@@ -1,15 +1,14 @@
 # ================================================================
 # POV Script → Image Mapper Pro  |  Streamlit + Gemini 2.0 Flash
 # GitHub: create new repo → paste this as app.py
-# requirements.txt needs:  streamlit>=1.32.0   google-genai>=1.0.0
+# requirements.txt needs:  streamlit>=1.32.0   google-generativeai>=0.8.0
 # ================================================================
 
 import streamlit as st
 import json
 import re
 from datetime import datetime
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 # ── Page Config ──────────────────────────────────────────────────
 st.set_page_config(
@@ -182,6 +181,7 @@ BADGE_STYLES = {
 defaults = {
     "api_key":         "",      # stored Gemini API key
     "api_key_saved":   False,   # whether key is saved this session
+    "selected_model":  "gemini-2.0-flash",  # chosen Gemini model
     "selected_preset": "agent",
     "results":         [],
     "analyzed_script": "",
@@ -266,32 +266,80 @@ Start directly with [ and end with ]
 }}"""
 
 
-def call_gemini(api_key: str, script_text: str, system_prompt: str) -> list:
-    client = genai.Client(api_key=api_key)
-    user_msg = (
-        "Analyze this POV script and return ONLY the raw JSON array:\n\n"
-        "---SCRIPT START---\n" + script_text + "\n---SCRIPT END---"
+# ── Model options ────────────────────────────────────────────────
+MODEL_OPTIONS = {
+    "gemini-2.0-flash":      "Gemini 2.0 Flash      (15 RPM free)",
+    "gemini-2.0-flash-lite": "Gemini 2.0 Flash-Lite (30 RPM free)",
+    "gemini-1.5-flash":      "Gemini 1.5 Flash      (15 RPM free)",
+    "gemini-1.5-flash-8b":   "Gemini 1.5 Flash-8B   (15 RPM free)",
+}
+
+
+def _try_one_model(api_key: str, model_name: str, user_msg: str, sys_prompt: str) -> str:
+    """Single model call — returns raw text or raises."""
+    genai.configure(api_key=api_key)
+    mdl = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=sys_prompt,
     )
-    response = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=user_msg,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
+    resp = mdl.generate_content(
+        user_msg,
+        generation_config=genai.GenerationConfig(
             temperature=0.65,
             max_output_tokens=8192,
             response_mime_type="application/json",
         ),
     )
-    raw = response.text.strip()
+    return resp.text.strip()
+
+
+def call_gemini(api_key: str, script_text: str, system_prompt: str,
+                primary_model: str = "gemini-2.0-flash") -> list:
+    user_msg = (
+        "Analyze this POV script and return ONLY the raw JSON array:\n\n"
+        "---SCRIPT START---\n" + script_text + "\n---SCRIPT END---"
+    )
+    # Auto-fallback chain — tries each model if previous hits 429
+    fallback_chain = [primary_model] + [
+        m for m in ["gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+        if m != primary_model
+    ]
+    last_err = None
+    used_model = primary_model
+    raw = ""
+    for attempt_model in fallback_chain:
+        try:
+            used_model = attempt_model
+            raw = _try_one_model(api_key, attempt_model, user_msg, system_prompt)
+            break   # success
+        except Exception as ex:
+            last_err = ex
+            err_str = str(ex)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                continue    # try next model
+            raise           # non-quota error — raise immediately
+    else:
+        raise RuntimeError(
+            "429 QUOTA EXHAUSTED — saare free models pe limit aa gayi.\n\n"
+            "Solutions:\n"
+            "1. Sidebar mein doosra model try karo\n"
+            "2. 1-2 min ruko (per-minute limit reset hoti hai)\n"
+            "3. Naya API key banao: aistudio.google.com/apikey\n"
+            "4. Google AI Studio mein billing enable karo (paid tier mein zyada quota)\n\n"
+            f"Last error: {last_err}"
+        )
+    # Parse JSON
     raw = re.sub(r"^```json\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"^```\s*",     "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$",     "", raw).strip()
     s, e = raw.find("["), raw.rfind("]")
     if s == -1 or e == -1:
-        raise ValueError("JSON array response mein nahi mila. Script thoda lamba rakho aur dobara try karo.")
+        raise ValueError("JSON array response mein nahi mila. Script thoda lamba rakho.")
     results = json.loads(raw[s : e + 1])
     if not isinstance(results, list) or len(results) == 0:
         raise ValueError("Gemini ne empty list di. Script mein aur detail add karo.")
+    for r in results:
+        r["_model_used"] = used_model
     return results
 
 
@@ -384,6 +432,21 @@ with st.sidebar:
             st.rerun()
 
     st.markdown('<hr style="border-color:#252535;margin:18px 0;">', unsafe_allow_html=True)
+
+    # ── Model Selector
+    st.markdown('<div style="font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:#4cc9f0;margin-bottom:8px;">🤖 GEMINI MODEL</div>', unsafe_allow_html=True)
+    chosen_model = st.selectbox(
+        "Model",
+        options=list(MODEL_OPTIONS.keys()),
+        format_func=lambda m: MODEL_OPTIONS[m],
+        index=list(MODEL_OPTIONS.keys()).index(st.session_state.selected_model),
+        label_visibility="collapsed",
+        key="model_selector",
+    )
+    if chosen_model != st.session_state.selected_model:
+        st.session_state.selected_model = chosen_model
+    st.markdown('<div style="font-size:9px;color:#686882;margin-top:4px;line-height:1.7;">💡 429 error aaye → model badlo<br>Auto-fallback bhi enabled hai</div>', unsafe_allow_html=True)
+    st.markdown('<hr style="border-color:#252535;margin:14px 0;">', unsafe_allow_html=True)
 
     # ── How to use ───────────────────────────────────────────────
     st.markdown("""
@@ -556,15 +619,37 @@ if analyze_clicked:
         char_anchor = get_char_anchor(_tab, st.session_state.selected_preset, _manual)
         sys_prompt  = build_system_prompt(char_anchor, ART_STYLES[art_label], VIDEO_THEMES[theme_label], platform_label)
 
-        with st.spinner("🔄 Gemini analyze kar raha hai... (15-30 sec)"):
+        primary = st.session_state.selected_model
+        with st.spinner(f"🔄 {primary} analyze kar raha hai... auto-fallback on (15-30 sec)"):
             try:
-                results = call_gemini(st.session_state.api_key, script_input, sys_prompt)
-                st.session_state.results         = results
-                st.session_state.analyzed_script = script_input
-                st.session_state.platform_used   = platform_label
-                st.success(f"✅ Done! {len(results)} image prompts generate ho gaye!")
+                results = call_gemini(
+                    st.session_state.api_key, script_input, sys_prompt,
+                    primary_model=primary,
+                )
+                model_used = results[0].get("_model_used", primary) if results else primary
+                st.session_state.results          = results
+                st.session_state.analyzed_script  = script_input
+                st.session_state.platform_used    = platform_label
+                st.session_state.model_used_last  = model_used
+                if model_used != primary:
+                    st.warning(f"⚠️ {primary} quota tha — auto-switched to **{model_used}** ✅ All prompts generated!")
+                else:
+                    st.success(f"✅ Done! {len(results)} prompts generated! (Model: {model_used})")
+            except RuntimeError as e:
+                st.error(str(e))
             except Exception as e:
-                st.error(f"❌ Error: {e}")
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    st.error(
+                        "❌ 429 — Quota Exhausted!\n\n"
+                        "**Quick Fixes:**\n"
+                        "1. Sidebar mein doosra model select karo\n"
+                        "2. 1-2 min ruko phir try karo\n"
+                        "3. Naya API key banao: aistudio.google.com/apikey\n"
+                        "4. Billing enable karo AI Studio mein (zyada quota)"
+                    )
+                else:
+                    st.error(f"❌ Error: {e}")
 
 
 # ================================================================
